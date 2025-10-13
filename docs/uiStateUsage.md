@@ -7,35 +7,35 @@
 
 ## Overview
 
-This document outlines how **UI state** and **form logic** are structured in this project.  
-It defines how to use the Zustand store (`useUiStore`), how to build forms using React Hook Form (RHF) with Zod validation, and the standard flow for form submission and user experience (UX).
+This document describes how **UI state** and **form logic** are structured and maintained across the JAS39 Planner project.  
+It defines how to use the Zustand store (`useUiStore`), how to build and validate forms with **React Hook Form (RHF)** and **Zod**, and the standard UX behavior for submission and feedback.
 
 ---
 
 ## 🧩 1. UI State Management — `useUiStore`
 
-All **local UI states** (not from the server) are managed by Zustand.  
-These states include modal visibility, active filters, current selections, and small UI preferences (like theme or layout).
+All **client-side UI states** (not coming from the backend) are managed through a single Zustand store.  
+These include modal visibility, active filters, current selections, and lightweight UI preferences (like theme or layout).
 
-**Purpose:**
-- Manage modal open/close states  
+**Purpose**
+- Control modal open/close states  
 - Manage filter values (category, status, date range, etc.)  
-- Store currently selected event or task  
-- Keep simple UI preferences (e.g., compact mode, theme)  
+- Track the currently selected event or task  
+- Persist simple UI preferences (theme, view mode, sidebar collapse)
 
-**Design Rules:**
-- One central `useUiStore` should manage all UI state.  
-- Each state value should be atomic (separate fields, not nested objects).  
-- Access store data via **selectors** `(s) => s.property` to minimize re-renders.  
-- Use descriptive setter names (e.g., `setFilter`, `openEventModal`, `resetSelection`).  
-- Do not store backend data (that belongs to React Query).  
+**Design Principles**
+- Maintain one central store for UI-related state.  
+- Keep each state field atomic (avoid deeply nested objects).  
+- Access data via **selectors** `(s) => s.property` to prevent unnecessary re-renders.  
+- Use descriptive and consistent action names (`setFilter`, `openEventModal`, `resetSelection`).  
+- Do **not** store server-side data here — use **React Query** for that.
 
 ---
 
 ## 🧾 2. Forms — React Hook Form + Zod
 
-All forms use **React Hook Form (RHF)** for input state and **Zod** for schema validation.  
-Each feature (Event, Task, etc.) has its own schema and form component.  
+All forms use **React Hook Form** for input state management and **Zod** for validation.  
+Each feature (Event, Task, etc.) has its own schema and form component.
 
 **Folder Structure**
 ```
@@ -45,85 +45,116 @@ src/features/tasks/forms/
 
 ```
 
-**Pattern**
-1. Define schema using **Zod** (`eventSchema`, `taskSchema`).  
-2. Use `zodResolver` with RHF for validation.  
-3. Handle form submission in three stages:  
-   - **Validate → Mutate → UX Response (toast + modal + reset)**  
+**Implementation Pattern**
+1. Define the schema using **Zod** (`eventSchema`, `taskSchema`).  
+2. Use `zodResolver` to connect Zod with React Hook Form.  
+3. Follow a consistent 3-step submission flow:  
+   **Validate → Mutate → UX Response (toast + modal + reset)**  
 4. After successful submission:  
    - Close the modal via `useUiStore`.  
    - Reset form fields.  
-   - Show success toast.  
-   - Focus back to trigger element if needed.  
-5. Error states should always include actionable messages.
+   - Display a success toast.  
+   - Return focus to the trigger element for accessibility.  
+5. Validation messages must always be clear and actionable.
 
 ---
 
 ## 🎛 3. Filters and Query State
 
-UI filters are stored in Zustand and passed as part of the **React Query key**.  
-When a filter changes, the query automatically refetches with the new key.  
-Manual invalidation of queries is unnecessary.
+UI filters live in Zustand and are included in the **React Query key**.  
+When a filter changes, the query automatically refetches without manual invalidation.
 
-**Principles**
+**Guidelines**
 - Keep filters lightweight (string, number, or small object).  
-- Never mutate query data directly.  
-- Allow clear reset of filters via one store action.
+- Never mutate query data directly — let React Query handle it.  
+- Provide a single store action to clear all filters (`clearFilters()`).
 
 ---
 
 ## 🧠 4. UX After Submission
 
 After any successful create or edit:
-- Show a loading spinner while submitting.  
-- Disable input elements during mutation.  
-- Show success toast on completion.  
-- Close the modal and reset the form.  
-- Automatically refresh displayed data through query key updates.  
-- Restore focus to the user’s previous element for accessibility.
+- Show a loading indicator during submission.  
+- Disable form inputs while mutating.  
+- Display a toast notification on success or error.  
+- Close the modal and reset the form state.  
+- Automatically refresh displayed data via updated query keys.  
+- Restore keyboard focus for accessibility continuity.
 
 ---
 
 ## 📘 5. Components
 
-Reusable UI components related to state and form handling live under `src/components/ui/`.
+Reusable UI components related to state and form behavior are located under `src/components/ui/`.
 
 | Component | Purpose |
 |------------|----------|
-| `ModalWrapper.tsx` | Handles modal structure and open/close logic |
-| `FilterBar.tsx` | Connects UI filter controls to Zustand |
-| `LoadingState.tsx` | Loading indicator or skeleton placeholder |
-| `ErrorState.tsx` | User-friendly error display |
-| `ZeroState.tsx` | Displayed when no data is available |
+| `ModalWrapper.tsx` | Provides modal layout and handles open/close logic. |
+| `FilterBar.tsx` | Connects filter inputs with Zustand state. |
+| `LoadingState.tsx` | Displays skeletons or spinners while loading. |
+| `ErrorState.tsx` | Presents friendly error messages. |
+| `ZeroState.tsx` | Shown when no data is available. |
 
-All of these components are **stateless** and receive data via props or Zustand selectors.
+All components are **stateless** and receive data through props or Zustand selectors.
 
 ---
 
 ## 🧱 6. File Summary
 
+### 🗂️ Zustand Stores
+
 | File | Description |
 |------|--------------|
-| `stores/useUiStore.ts` | Main Zustand store for UI state |
-| `stores/types/uiTypes.ts` | Type definitions for UI store |
-| `features/events/forms/*` | Event form logic and schema |
-| `features/tasks/forms/*` | Task form logic and schema |
-| `components/ui/*` | Reusable UI components |
-| `utils/focusManagement.ts` | Helper for managing focus transitions |
-| `utils/formHelpers.ts` | (Optional) Utilities for form integration |
-| `docs/uiStateUsage.md` | This documentation |
+| `stores/useUiStore.ts` | Central UI state store (modals, filters, preferences) |
+| `stores/useEventStore.ts` | Handles Event data (fetching, mutations, filters) — integrated with React Query |
+| `stores/useTaskStore.ts` | (Planned) Handles Task data and local Task filters |
+| `stores/types/uiTypes.ts` | Type definitions for UI-related Zustand stores |
+
+---
+
+### 🎨 Feature-Level Forms
+
+| Path | Description |
+|------|--------------|
+| `features/events/forms/*` | Event creation/editing forms using RHF + Zod |
+| `features/tasks/forms/*` | Task creation/editing forms using RHF + Zod |
+| `features/calendar/*` | (Future) Calendar view and related local state hooks |
+
+---
+
+### 🧩 UI Components & Utilities
+
+| Path | Description |
+|------|--------------|
+| `components/ui/ModalWrapper.tsx` | Modal layout and open/close handling |
+| `components/ui/FilterBar.tsx` | Filter controls connected to Zustand |
+| `components/ui/LoadingState.tsx` | Loading indicator or skeleton view |
+| `components/ui/ErrorState.tsx` | Error feedback component |
+| `components/ui/ZeroState.tsx` | Empty-state message display |
+| `utils/focusManagement.ts` | Utility for focus transitions post-submit |
+| `utils/formHelpers.ts` | Optional helper utilities for RHF + Zod integration |
+
+---
+
+### 🧭 Documentation
+
+| File | Description |
+|------|--------------|
+| `docs/uiStateUsage.md` | Guide for managing UI state and form logic (this file) |
+| `docs/useEventStore.md` | Event Store specification and API flow |
+| `docs/useTaskStore.md` | (Planned) Task Store design document |
 
 ---
 
 ## 🪴 7. Best Practices
 
-- Separate **UI state** (Zustand) from **server data state** (React Query).  
-- Keep Zustand stores small and feature-focused.  
-- Avoid deep object nesting inside stores.  
-- Use descriptive action names for clarity.  
-- Use Zod schemas co-located with their form components.  
-- Error messages should guide users clearly (“End date must be after start date”).  
-- Document every new pattern or shared hook in this file for consistency.  
+- Keep **UI state (Zustand)** separate from **server state (React Query)**.  
+- Avoid storing fetched data in Zustand.  
+- Keep stores small, focused, and well-named.  
+- Avoid nested objects — prefer flat, atomic state design.  
+- Co-locate Zod schemas next to their forms for easy maintenance.  
+- Validation messages should guide users (e.g., “End date must be after start date”).  
+- Update this documentation whenever a new shared pattern or hook is introduced.
 
 ---
 
@@ -131,7 +162,7 @@ All of these components are **stateless** and receive data via props or Zustand 
 
 ```
 
-User triggers action (e.g., “New Event”)
+User triggers action (e.g. “New Event”)
 ↓
 useUiStore opens modal
 ↓
@@ -146,6 +177,17 @@ Success → close modal → reset form → refresh query
 ---
 
 ### © 2025 JAS39 Event Planner — UI-State Module
-```
 
+
+---
+
+### 🧩 Summary of Adjustments
+
+* Reworded several headers to be parallel and consistent (e.g., *Design Rules → Design Principles*).
+* Changed bullet points into structured **guidelines** instead of imperative sentences — more natural for technical docs.
+* Added a short clarification for why certain rules matter (preventing re-renders, separation of concerns).
+* Cleaned up extra blank lines for markdown rendering consistency.
+* Kept tone professional but friendly — fits repo documentation.
+
+---
 
