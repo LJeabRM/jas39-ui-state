@@ -11,33 +11,29 @@ import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { MultiSelect } from "@/components/ui/MultiSelect";
+import { useMembers } from "@/stores/useMemberStore";
 
-// Zod schema
+// Zod schema with error messages
 export const eventSchema = z
   .object({
-    title: z.string().min(1, "Please fill out this field").max(100, "Title too long"),
+    title: z.string().min(1, { message: "Please fill out this field" }).max(100, { message: "Title too long" }),
     description: z.string().optional(),
     location: z.string().optional(),
     isMultiDay: z.boolean().default(false),
-    startDate: z.string().min(1, "Start date is required"),
+    startDate: z.string().min(1, { message: "Start date is required" }),
     endDate: z.string().optional(),
-    startTime: z.string().min(1, "Start time is required"),
-    endTime: z.string().min(1, "End time is required"),
+    startTime: z.string().min(1, { message: "Start time is required" }),
+    endTime: z.string().min(1, { message: "End time is required" }),
     color: z.string().optional(),
     coverImage: z.string().optional(),
     participants: z.array(z.string()).optional(),
   })
   .refine(
     (data) => {
-      if (data.isMultiDay && data.endDate) {
-        return new Date(data.endDate) >= new Date(data.startDate);
-      }
+      if (data.isMultiDay && data.endDate) return new Date(data.endDate) >= new Date(data.startDate);
       return true;
     },
-    {
-      message: "End date must be start date or later",
-      path: ["endDate"],
-    }
+    { message: "End date must be start date or later", path: ["endDate"] }
   );
 
 export type EventFormData = z.infer<typeof eventSchema>;
@@ -48,17 +44,15 @@ interface EventFormProps {
   onSuccess?: () => void;
 }
 
-export const EventForm: React.FC<EventFormProps> = ({
-  eventId,
-  mode = "create",
-  onSuccess,
-}) => {
+export const EventForm: React.FC<EventFormProps> = ({ eventId, mode = "create", onSuccess }) => {
   const closeModal = useUiStore((s) => s.closeAllModals);
 
   const { data: eventData } = useFetchEvent(eventId);
-
   const createMutation = useCreateEvent();
   const updateMutation = useUpdateEvent();
+
+  const { data: members, isLoading, isError } = useMembers(eventId);
+  const memberOptions = members?.map((member) => ({ label: member.name, value: member.id })) || [];
 
   const form = useForm<EventFormData>({
     resolver: zodResolver(eventSchema),
@@ -78,7 +72,6 @@ export const EventForm: React.FC<EventFormProps> = ({
   });
 
   const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting } } = form;
-
   const isMultiDay = watch("isMultiDay");
 
   useEffect(() => {
@@ -163,9 +156,7 @@ export const EventForm: React.FC<EventFormProps> = ({
           {errors.startTime && <p className="text-red-500 text-sm">{errors.startTime.message}</p>}
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">
-            {isMultiDay ? "End Time (on last day) *" : "End Time *"}
-          </label>
+          <label className="block text-sm font-medium mb-1">{isMultiDay ? "End Time (on last day) *" : "End Time *"}</label>
           <Input type="time" {...register("endTime")} disabled={isDisabled} />
           {errors.endTime && <p className="text-red-500 text-sm">{errors.endTime.message}</p>}
         </div>
@@ -192,16 +183,19 @@ export const EventForm: React.FC<EventFormProps> = ({
       {/* Participants */}
       <div>
         <label className="block text-sm font-medium mb-1">Participants</label>
-        <MultiSelect
-          values={watch("participants") || []}
-          onChange={(val) => form.setValue("participants", val)}
-          options={[
-            { label: "John", value: "john" },
-            { label: "Alice", value: "alice" },
-            { label: "Sara", value: "sara" },
-          ]}
-          placeholder="Select participants"
-        />
+        {isLoading ? (
+          <p>Loading members...</p>
+        ) : isError ? (
+          <p className="text-red-500 text-sm">Failed to load members</p>
+        ) : (
+          <MultiSelect
+            values={watch("participants") || []}
+            onChange={(val) => form.setValue("participants", val)}
+            options={memberOptions}
+            placeholder="Select participants"
+            disabled={isDisabled}
+          />
+        )}
       </div>
 
       {/* Actions */}
