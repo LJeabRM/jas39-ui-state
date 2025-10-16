@@ -1,5 +1,3 @@
-# uiStateIntegration.md
-
 # UI-State & Forms Integration Guide
 
 **Owner:** Lukjeab
