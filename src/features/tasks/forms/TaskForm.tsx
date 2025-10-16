@@ -2,12 +2,11 @@
 import React from "react";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { TaskFormValues, taskSchema } from "./taskSchema";
+import { toast } from "react-hot-toast";
 import { useUiStore } from "@/stores/useUiStore";
 import { useCreateTask, useUpdateTask } from "@/stores/useTaskStore";
-import { toast } from "react-hot-toast";
+import { taskSchema, TaskFormValues } from "./taskSchema";
 
-// ✅ import UI components from repo
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +25,9 @@ interface TaskFormProps {
   defaultValues?: Partial<TaskFormValues>;
   taskId?: string;
 }
+
+// สำหรับ personal task, userId ต้องมาจาก auth / store
+const currentUserId = "user-123"; // replace ด้วย actual auth context
 
 export const TaskForm: React.FC<TaskFormProps> = ({
   mode,
@@ -69,9 +71,13 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   });
 
   const isScheduled = watch("isScheduled");
+  const isPersonal = watch("isPersonal");
 
   const onSubmit = async (data: TaskFormValues) => {
     try {
+      // Personal task = assign to current user
+      if (isPersonal) data.assignees = [currentUserId];
+
       if (mode === "create") {
         await createTask.mutateAsync(data);
         toast.success("Task created successfully");
@@ -101,11 +107,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       {/* Description */}
       <div>
         <Label>Description</Label>
-        <Textarea
-          {...register("description")}
-          placeholder="Add description..."
-          rows={3}
-        />
+        <Textarea {...register("description")} placeholder="Add description..." rows={3} />
       </div>
 
       {/* Priority & Status */}
@@ -129,11 +131,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
               </Select>
             )}
           />
-          {errors.priority && (
-            <p className="text-red-500 text-sm mt-1">
-              {errors.priority.message}
-            </p>
-          )}
+          {errors.priority && <p className="text-red-500 text-sm mt-1">{errors.priority.message}</p>}
         </div>
 
         <div>
@@ -154,11 +152,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
               </Select>
             )}
           />
-          {errors.status && (
-            <p className="text-red-500 text-sm mt-1">
-              {errors.status.message}
-            </p>
-          )}
+          {errors.status && <p className="text-red-500 text-sm mt-1">{errors.status.message}</p>}
         </div>
       </div>
 
@@ -166,9 +160,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       <div>
         <Label>Due Date</Label>
         <Input type="date" {...register("dueDate")} />
-        {errors.dueDate && (
-          <p className="text-red-500 text-sm mt-1">{errors.dueDate.message}</p>
-        )}
+        {errors.dueDate && <p className="text-red-500 text-sm mt-1">{errors.dueDate.message}</p>}
       </div>
 
       {/* Checkboxes */}
@@ -176,10 +168,8 @@ export const TaskForm: React.FC<TaskFormProps> = ({
         <div className="flex items-center gap-2">
           <Checkbox
             id="personal"
-            checked={watch("isPersonal")}
-            onCheckedChange={(val) =>
-              reset({ ...watch(), isPersonal: Boolean(val) })
-            }
+            checked={isPersonal}
+            onCheckedChange={(val) => reset({ ...watch(), isPersonal: Boolean(val) })}
           />
           <Label htmlFor="personal">Personal Task</Label>
         </div>
@@ -187,69 +177,49 @@ export const TaskForm: React.FC<TaskFormProps> = ({
         <div className="flex items-center gap-2">
           <Checkbox
             id="scheduled"
-            checked={watch("isScheduled")}
-            onCheckedChange={(val) =>
-              reset({ ...watch(), isScheduled: Boolean(val) })
-            }
+            checked={isScheduled}
+            onCheckedChange={(val) => reset({ ...watch(), isScheduled: Boolean(val) })}
           />
           <Label htmlFor="scheduled">Schedule Task</Label>
         </div>
       </div>
 
-      {/* Schedule Start/End */}
+      {/* Schedule */}
       {isScheduled && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Schedule Start</Label>
+            <Label>Schedule Start *</Label>
             <Input type="datetime-local" {...register("scheduleStart")} />
+            {errors.scheduleStart && <p className="text-red-500 text-sm mt-1">{errors.scheduleStart.message}</p>}
           </div>
           <div>
-            <Label>Schedule End</Label>
+            <Label>Schedule End *</Label>
             <Input type="datetime-local" {...register("scheduleEnd")} />
-            {errors.scheduleEnd && (
-              <p className="text-red-500 text-sm mt-1">
-                {errors.scheduleEnd.message}
-              </p>
-            )}
+            {errors.scheduleEnd && <p className="text-red-500 text-sm mt-1">{errors.scheduleEnd.message}</p>}
           </div>
         </div>
       )}
 
-      {/* Subtasks (optional) */}
+      {/* Subtasks */}
       <div>
         <Label>Subtasks (optional)</Label>
         {fields.length > 0 &&
           fields.map((field, index) => (
             <div key={field.id} className="flex items-center gap-2 mt-2">
-              <Input
-                {...register(`subtasks.${index}.title` as const)}
-                placeholder="Subtask title"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-red-500 hover:text-red-700"
-                onClick={() => remove(index)}
-              >
+              <Input {...register(`subtasks.${index}.title` as const)} placeholder="Subtask title" />
+              <Button type="button" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => remove(index)}>
                 🗑
               </Button>
             </div>
           ))}
-        <Button
-          type="button"
-          variant="link"
-          className="text-blue-600 text-sm mt-2"
-          onClick={() => append({ title: "", completed: false })}
-        >
+        <Button type="button" variant="link" className="text-blue-600 text-sm mt-2" onClick={() => append({ title: "", completed: false })}>
           + Add Subtask
         </Button>
       </div>
 
       {/* Buttons */}
       <div className="flex justify-end gap-3 mt-4">
-        <Button variant="outline" type="button" onClick={closeModal}>
-          Cancel
-        </Button>
+        <Button variant="outline" type="button" onClick={closeModal}>Cancel</Button>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting
             ? mode === "create"
@@ -263,3 +233,5 @@ export const TaskForm: React.FC<TaskFormProps> = ({
     </form>
   );
 };
+
+export default TaskForm;
