@@ -43,7 +43,7 @@ export const eventSchema = z
 export type EventFormData = z.infer<typeof eventSchema>;
 
 interface EventFormProps {
-  eventId?: string | null; // ถ้าเป็น null = create mode
+  eventId?: string | null;
   mode?: "create" | "edit";
   onSuccess?: () => void;
 }
@@ -81,7 +81,6 @@ export const EventForm: React.FC<EventFormProps> = ({
 
   const isMultiDay = watch("isMultiDay");
 
-  // reset form เมื่อ fetch data สำหรับ edit mode
   useEffect(() => {
     if (eventData && mode === "edit") {
       reset({
