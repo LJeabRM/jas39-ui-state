@@ -1,8 +1,8 @@
 // src/stores/useMemberStore.ts
-import { create } from 'zustand';
-import { useQuery } from '@tanstack/react-query';
+import { create } from "zustand";
+import { useQuery } from "@tanstack/react-query";
 
-interface Member {
+export interface Member {
   id: string;
   name: string;
 }
@@ -11,7 +11,7 @@ interface MemberStore {
   members: Member[];
   isLoading: boolean;
   isError: boolean;
-  fetchMembers: (eventId: string) => void;
+  fetchMembers: (eventId: string) => Promise<void>;
 }
 
 export const useMemberStore = create<MemberStore>((set) => ({
@@ -22,7 +22,7 @@ export const useMemberStore = create<MemberStore>((set) => ({
     set({ isLoading: true, isError: false });
     try {
       const res = await fetch(`/api/events/${eventId}/members`);
-      if (!res.ok) throw new Error('Failed to fetch members');
+      if (!res.ok) throw new Error("Failed to fetch members");
       const data: Member[] = await res.json();
       set({ members: data, isLoading: false });
     } catch (error) {
@@ -36,13 +36,26 @@ export const useMemberStore = create<MemberStore>((set) => ({
 export const useMembers = (eventId?: string) => {
   const store = useMemberStore();
 
-  const query = useQuery(['members', eventId], () => fetch(`/api/events/${eventId}/members`).then((res) => {
-    if (!res.ok) throw new Error('Failed to fetch members');
-    return res.json();
-  }), {
-    enabled: !!eventId, // only fetch if eventId exists
-    onSuccess: (data) => store.fetchMembers(eventId!),
-  });
+  const query = useQuery<Member[]>(
+    ["members", eventId],
+    async () => {
+      if (!eventId) return [];
+      const res = await fetch(`/api/events/${eventId}/members`);
+      if (!res.ok) throw new Error("Failed to fetch members");
+      return res.json();
+    },
+    {
+      enabled: !!eventId,
+      onSuccess: (data) =>
+        useMemberStore.setState({
+          members: data,
+          isLoading: false,
+          isError: false,
+        }),
+      onError: () =>
+        useMemberStore.setState({ isError: true, isLoading: false }),
+    }
+  );
 
   return {
     data: store.members,
