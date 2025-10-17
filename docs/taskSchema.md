@@ -6,7 +6,7 @@ This document describes the **Zod schema** used to validate `TaskForm` fields in
 
 ## 1. Purpose
 
-The `taskSchema` ensures all task-related data submitted by users are valid and consistent with business logic, including scheduling and optional subtasks.
+The `taskSchema` ensures all task-related data submitted by users are **valid, consistent, and logic-safe**, including schedule validation, assignee requirements, and optional subtasks.
 
 ---
 
@@ -42,30 +42,35 @@ interface Subtask {
 }
 ```
 
-* Optional subtasks.
-* Validation: If `title` exists, it must not be empty.
-* Default empty array `[]` ensures schema stability when no subtasks are added.
+✅ **Validation details**
+
+* `title` is optional, but if provided, it must not be an empty string.
+* `completed` defaults to `false`.
+* The parent `subtasks` field defaults to `[]`, preventing `undefined` array errors in forms.
 
 ---
 
 ## 4. Validation Rules
 
-| Field         | Rule                                   | Message                                |
-| ------------- | -------------------------------------- | -------------------------------------- |
-| `title`       | Required, min(1)                       | `"Please enter a task title."`         |
-| `priority`    | Enum                                   | `"Please select a priority."`          |
-| `status`      | Enum                                   | `"Please select a status."`            |
-| `dueDate`     | Optional, must be ≥ today              | `"Due date cannot be in the past."`    |
-| `scheduleEnd` | Must be ≥ `scheduleStart` if scheduled | `"End time must be after start time."` |
+| Field         | Rule & Condition                                    | Message                                  |
+| ------------- | --------------------------------------------------- | ---------------------------------------- |
+| `title`       | Required, min(1)                                    | `"Please enter a task title."`           |
+| `priority`    | Required enum                                       | `"Please select a priority."`            |
+| `status`      | Required enum                                       | `"Please select a status."`              |
+| `dueDate`     | Optional, must be today or later                    | `"Due date cannot be in the past."`      |
+| `assignees`   | Array, must include at least one ID                 | `"Please select at least one assignee."` |
+| `scheduleEnd` | Must be ≥ `scheduleStart` when scheduled is enabled | `"End time must be after start time."`   |
+| `subtasks`    | Defaults to `[]` (optional)                         | —                                        |
+| `attachments` | Defaults to `[]` (optional)                         | —                                        |
 
 ---
 
 ## 5. Business Logic
 
-* Tasks **must have at least one assignee**.
-* Subtasks are **optional** and can be empty.
-* Schedules are validated only when `isScheduled` is `true`.
-* Default arrays (`subtasks`, `attachments`) prevent uncontrolled form errors.
+* A **task must have at least one assignee** unless marked as personal (handled in `TaskForm` logic).
+* **Scheduling** validation (`scheduleStart`, `scheduleEnd`) only applies when `isScheduled` = `true`.
+* `dueDate` is ignored if not provided but must not be in the past if filled.
+* Empty subtasks or attachments will automatically be initialized as `[]`.
 
 ---
 
@@ -74,13 +79,27 @@ interface Subtask {
 ```ts
 const form = useForm<TaskFormValues>({
   resolver: zodResolver(taskSchema),
-  defaultValues: { isScheduled: false, isPersonal: false },
+  defaultValues: {
+    isScheduled: false,
+    isPersonal: false,
+    subtasks: [],
+    attachments: [],
+  },
 });
 ```
 
 ---
 
+✅ **Summary of Key Improvements**
+
+* Added missing `assignees` rule to table.
+* Clarified conditional validation for `isScheduled`.
+* Matched exact default behaviors (`default([])` for arrays).
+* Confirmed that `dueDate` uses `.refine()` and supports `nullable`.
+
+---
+
 **Author:** UI-State & Forms (Lukjeab)
-**Last Updated:** 2025
+**Last Updated:** 2025-10-17 ✅
 
 ---
