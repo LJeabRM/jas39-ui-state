@@ -1,83 +1,118 @@
 # `useEventStore.ts` – Event State Management Design
 
-This document outlines the structure, state definitions, and action flows required to design and implement the **Event Store** for the JAS39 Planner.  
+This document outlines the structure, state definitions, and action flows required to design and implement the **Event Store** for the JAS39 Planner.
 The store integrates **Zustand** (for local UI state) and **React Query** (for API communication and caching).
 
 ---
 
 ## 1. Event Model / Interface
 
-Based on the **Form Modal** (`image_065635.png`, `image_065612.png`) and **Event Card** (`image_877ef8.png`), the main fields for the `Event` model are as follows:
+Based on the **Form Modal** (`image_065635.png`, `image_065612.png`) and **Event Card** (`image_877ef8.png`), the `Event` model contains the following fields:
 
-| Field Name | Type | Notes | Source |
-| :--- | :--- | :--- | :--- |
-| **`id`** | `string` | Unique identifier used for edit/delete actions. | *Inferred* |
-| **`title`** | `string` | Event title *(required)*. | Form |
-| **`location`** | `string` | Event location. | Form |
-| **`isMultiDay`** | `boolean` | Determined by the “Multi-day event” checkbox. | Form |
-| **`startDate`** | `Date` | Start date *(required)*. | Form |
-| **`endDate`** | `Date \| null` | Only applicable when `isMultiDay = true`. | Form |
-| **`startTime`** | `Date \| null` | Start time *(required)*. | Form |
-| **`endTime`** | `Date \| null` | End time *(or “End Time (on last day)”).* | Form |
-| **`description`** | `string` | Event description or notes. | Form |
-| **`coverImage`** | `string \| null` | Optional image URL for the event. | Form |
-| **`color`** | `string` | Event color (e.g. hex code). | Form |
-| **`participants`** | `string[]` | List of team members (IDs or names). | Form / Card |
-| **`progress`** | `number` | Completion percentage (0–100). | Card (“Progress 40% Complete”) |
-
----
-
-## 2. Local Store State
-
-The following local states are used to manage data fetched from the API and maintain the UI state of the Event view:
-
-| State Variable | Type | Default Value | Description |
-| :--- | :--- | :--- | :--- |
-| **`events`** | `Event[]` | `[]` | List of all events displayed in the **All Events** view. |
-| **`selectedEventId`** | `string \| null` | `null` | ID of the currently selected or edited event. |
-| **`isLoading`** | `boolean` | `false` | Indicates loading state while fetching (`GET /api/events`). |
-| **`isError`** | `boolean` | `false` | Indicates whether an error occurred during fetch or mutation. |
-| **`totalCount`** | `number` | `0` | Total number of events (`Showing 6 of 6 events`). |
-| **`showingCount`** | `number` | `0` | Number of events currently visible after filtering. |
+| Field          | Type             | Description                                             | Source                         |
+| :------------- | :--------------- | :------------------------------------------------------ | :----------------------------- |
+| `id`           | `string`         | Unique event identifier (used for edit/delete actions). | *Inferred*                     |
+| `title`        | `string`         | Event title *(required)*.                               | Form                           |
+| `location`     | `string`         | Event location.                                         | Form                           |
+| `isMultiDay`   | `boolean`        | Determined by the “Multi-day event” checkbox.           | Form                           |
+| `startDate`    | `string`         | Start date *(required)*.                                | Form                           |
+| `endDate`      | `string \| null` | End date (only applies if `isMultiDay = true`).         | Form                           |
+| `startTime`    | `string \| null` | Start time *(required)*.                                | Form                           |
+| `endTime`      | `string \| null` | End time (or “End time on last day”).                   | Form                           |
+| `description`  | `string`         | Event description or notes.                             | Form                           |
+| `coverImage`   | `string \| null` | Optional cover image URL.                               | Form                           |
+| `color`        | `string`         | Event color (e.g., HEX code).                           | Form                           |
+| `participants` | `string[]`       | List of assigned team members.                          | Form / Card                    |
+| `progress`     | `number`         | Completion percentage (0–100).                          | Card (“Progress 40% Complete”) |
 
 ---
 
-## 3. Filter and Sorting State (Event-Specific)
+## 2. Local Store State (Zustand)
 
-These states are dedicated to **querying and filtering** event data.  
-They will typically synchronize with `useUiStore.ts` to align with UI filter/sort options.
+The **Zustand store** holds local UI and filter state to synchronize the Event page.
+These states are not persisted; they are reactive and scoped to UI logic.
 
-| State Variable | Type / Options | Default Value | Source |
-| :--- | :--- | :--- | :--- |
-| **`searchKeyword`** | `string` | `""` | Text entered in the “Search events…” bar. |
-| **`eventSortBy`** | `string` | `"Start Date (Soonest)"` | Dropdown options: `"Start Date (Soonest)"`, `"Event Name (A-Z)"`, `"Progress (High to Low)"`. |
-| **`eventSortDirection`** | `"asc" \| "desc"` | `"asc"` | Sorting direction (Soonest → Ascending). |
-| **`filterByProgress`** | `string[]` | `["Not Started", "In Progress", "Completed"]` | Checkboxes in the **Filter Events** panel. |
-| **`filterByDate`** | `string[]` | `["Past Events", "This Week", "This Month", "Future Events"]` | Checkboxes in the **Filter Events** panel. |
-
----
-
-## 4. Interaction with `useUiStore.ts` and API (Actions & Flow)
-
-The following table describes the main action methods, their logic flow, and how they connect with other systems:
-
-| Action (Method) | Flow / Logic | Connected To |
-| :--- | :--- | :--- |
-| **`createEvent(data)`** | 1. Calls API: `POST /api/events`. <br> 2. **On success:** updates local `events` state, closes modal via `useUiStore.closeAllModals()`, and shows a toast notification. | **API + useUiStore** |
-| **`updateEvent(id, data)`** | 1. Calls API: `PUT /api/events/:id`. <br> 2. **On success:** updates the specific event in the local `events` array, closes modal, and shows a toast notification. | **API + useUiStore** |
-| **`deleteEvent(id)`** | 1. Calls API: `DELETE /api/events/:id`. <br> 2. **On success:** removes the event from the `events` array and shows a toast notification. | **API** |
-| **`fetchEvents(filters)`** | 1. Sets `isLoading = true`. <br> 2. Calls API: `GET /api/events` with **Filter/Sort** parameters. <br> 3. Updates `events` list and count states. | **API** |
-| **`loadEventForEdit(id)`** | 1. Sets `selectedEventId = id`. <br> 2. Calls API: `GET /api/events/:id` to retrieve full event details for the edit form. | **API** |
-| **`setEventFilters(filters)`** | Updates filter-related local states (`searchKeyword`, `eventSortBy`, etc.) and triggers a **refetch**. | **Local State + Refetch** |
+| State Variable       | Type              | Default Value                                                 | Description                                         |
+| :------------------- | :---------------- | :------------------------------------------------------------ | :-------------------------------------------------- |
+| `selectedEventId`    | `string \| null`  | `null`                                                        | ID of the event currently selected or being edited. |
+| `searchKeyword`      | `string`          | `""`                                                          | Keyword typed in the event search bar.              |
+| `eventSortBy`        | `string`          | `"Start Date (Soonest)"`                                      | Selected sort option (dropdown).                    |
+| `eventSortDirection` | `"asc" \| "desc"` | `"asc"`                                                       | Sorting direction.                                  |
+| `filterByProgress`   | `string[]`        | `["Not Started", "In Progress", "Completed"]`                 | Progress filter (checkbox).                         |
+| `filterByDate`       | `string[]`        | `["Past Events", "This Week", "This Month", "Future Events"]` | Date filter (checkbox).                             |
+| `totalCount`         | `number`          | `0`                                                           | Total number of events.                             |
+| `showingCount`       | `number`          | `0`                                                           | Number of events displayed after filtering.         |
 
 ---
 
-## Summary
+## 3. Local Actions (Mutators)
 
-This plan ensures that:
-- **Zustand** manages local UI state and synchronization between components.
-- **React Query** efficiently fetches, caches, and mutates data from `/api/events`.
-- **useUiStore** handles modal visibility and user interactions seamlessly.
-- Toast notifications give immediate feedback to users for create, update, and delete actions.
+| Method                       | Parameters                 | Description                                   |
+| :--------------------------- | :------------------------- | :-------------------------------------------- |
+| `setSelectedEventId(id)`     | `string \| null`           | Sets the active event for viewing or editing. |
+| `setSearchKeyword(keyword)`  | `string`                   | Updates keyword for searching events.         |
+| `setEventSortBy(sort)`       | `string`                   | Changes event sort type.                      |
+| `setEventSortDirection(dir)` | `"asc" \| "desc"`          | Toggles ascending/descending sorting.         |
+| `setEventFilters(filters)`   | `Partial<EventStoreState>` | Updates multiple filter/sort states at once.  |
 
-Together, they provide a clean, predictable data flow for the **Event Management** feature of JAS39 Planner.
+---
+
+## 4. API Layer (CRUD Functions)
+
+| Function                | HTTP Method | Endpoint            | Description                                       |
+| :---------------------- | :---------- | :------------------ | :------------------------------------------------ |
+| `fetchEvents(params)`   | `GET`       | `/api/events?query` | Fetch all events based on filter/sort parameters. |
+| `createEvent(data)`     | `POST`      | `/api/events`       | Create a new event with given data.               |
+| `updateEvent(id, data)` | `PUT`       | `/api/events/:id`   | Update an existing event.                         |
+| `deleteEvent(id)`       | `DELETE`    | `/api/events/:id`   | Delete an event by its ID.                        |
+
+All functions throw an error if the response is not `res.ok`.
+
+---
+
+## 5. React Query Hooks
+
+| Hook               | Purpose                                                               | Success Behavior                                                             | Error Behavior                            |
+| :----------------- | :-------------------------------------------------------------------- | :--------------------------------------------------------------------------- | :---------------------------------------- |
+| `useFetchEvents()` | Fetches events list from the server, refetches on filter/sort change. | Updates cache (`["events"]`) automatically.                                  | Displays toast: “Failed to fetch events”. |
+| `useCreateEvent()` | Creates a new event.                                                  | Shows toast: “Event created successfully!”, invalidates cache, closes modal. | Shows toast: “Failed to create event”.    |
+| `useUpdateEvent()` | Updates an existing event.                                            | Shows toast: “Event updated successfully!”, invalidates cache, closes modal. | Shows toast: “Failed to update event”.    |
+| `useDeleteEvent()` | Deletes an event.                                                     | Shows toast: “Event deleted!”, invalidates cache.                            | Shows toast: “Failed to delete event”.    |
+
+---
+
+## 6. Interaction & Flow Diagram (Simplified Table Form)
+
+| Action                      | Trigger Source              | Flow Summary                                                         | Connected Components            |
+| :-------------------------- | :-------------------------- | :------------------------------------------------------------------- | :------------------------------ |
+| **Create Event**            | “Add Event” modal → Submit  | POST `/api/events` → Refetch events → Close modal → Toast success    | `EventFormModal`, `useUiStore`  |
+| **Update Event**            | “Edit Event” modal → Save   | PUT `/api/events/:id` → Refetch events → Close modal → Toast success | `EventFormModal`, `useUiStore`  |
+| **Delete Event**            | Event card “Delete” button  | DELETE `/api/events/:id` → Refetch → Toast success                   | `EventCard`                     |
+| **Filter/Sort Events**      | Filter panel, sort dropdown | Update local filters → Refetch via `useFetchEvents()`                | `EventFilters`, `useEventStore` |
+| **View/Edit Event Details** | Card click or edit icon     | Set `selectedEventId` → Load event data                              | `EventDetailsPanel`             |
+
+---
+
+## 7. Integration Example (React Component Usage)
+
+| Integration Point          | Implementation Summary                                                   |
+| :------------------------- | :----------------------------------------------------------------------- |
+| **Event List Page**        | Uses `useFetchEvents()` to display event cards dynamically with filters. |
+| **Event Modal (Add/Edit)** | Uses `useCreateEvent()` or `useUpdateEvent()` mutation hooks.            |
+| **Delete Confirmation**    | Uses `useDeleteEvent()` mutation.                                        |
+| **Filter Sidebar**         | Connects to `useEventStore()` to control filters and sorting.            |
+
+---
+
+## ✅ Summary
+
+This design ensures:
+
+* **Zustand** → Manages UI, filters, and selection logic.
+* **React Query** → Handles data fetching, mutation, and caching from `/api/events`.
+* **useUiStore** → Controls modal state and UI interactions.
+* **Toast** → Provides instant feedback to users for all CRUD actions.
+
+🧭 **Result:** A modular, reactive, and consistent event management system — ensuring clarity between UI state, server data, and user interactions.
+
+---
