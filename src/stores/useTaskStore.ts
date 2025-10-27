@@ -4,11 +4,11 @@ import { devtools } from "zustand/middleware";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import { useUiStore } from "./useUiStore";
+import { supabase } from "@/lib/supabaseClient";
 
-/**
- * Task model
- * Dates are represented as ISO strings (e.g. "2025-10-15T08:00:00Z") to simplify JSON transport.
- */
+// -----------------------------
+// Type Definitions
+// -----------------------------
 export interface Subtask {
   id: string;
   title: string;
@@ -36,18 +36,16 @@ export interface Task {
   updatedAt?: string;
 }
 
-/**
- * Local task store state (Zustand) - for UI / filters / selection
- */
+// -----------------------------
+// Zustand Store (local UI state)
+// -----------------------------
 export interface TaskStoreState {
-  // selection + meta
   selectedTaskId: string | null;
   totalCount: number;
   showingCount: number;
 
-  // search / filters / sorting / view
   searchKeyword: string;
-  quickFilter: string; // e.g., "Due Today", "High Priority", "My Tasks"
+  quickFilter: string;
   taskSortBy:
     | "Due Date (Earliest)"
     | "Due Date (Latest)"
@@ -59,13 +57,11 @@ export interface TaskStoreState {
   taskSortDirection: "asc" | "desc";
   viewMode: "List View" | "Board View" | "Calendar View";
 
-  // advanced filters
   filterByStatus: ("To Do" | "In Progress" | "Done")[];
   filterByPriority: ("Urgent" | "High" | "Normal" | "Low")[];
   showCompletedTasks: boolean;
   showPersonalTasks: boolean;
 
-  // actions / setters
   setSelectedTaskId: (id: string | null) => void;
   setTotalCount: (n: number) => void;
   setShowingCount: (n: number) => void;
@@ -81,12 +77,21 @@ export interface TaskStoreState {
   setShowCompletedTasks: (b: boolean) => void;
   setShowPersonalTasks: (b: boolean) => void;
 
-  setTaskFilters: (partial: Partial<Omit<TaskStoreState, "setTaskFilters" | "setSelectedTaskId" | "setTotalCount" | "setShowingCount">>) => void;
+  setTaskFilters: (
+    partial: Partial<
+      Omit<
+        TaskStoreState,
+        | "setTaskFilters"
+        | "setSelectedTaskId"
+        | "setTotalCount"
+        | "setShowingCount"
+      >
+    >
+  ) => void;
 }
 
 export const useTaskStore = create<TaskStoreState>()(
   devtools((set) => ({
-    // defaults
     selectedTaskId: null,
     totalCount: 0,
     showingCount: 0,
@@ -102,7 +107,6 @@ export const useTaskStore = create<TaskStoreState>()(
     showCompletedTasks: true,
     showPersonalTasks: true,
 
-    // setters
     setSelectedTaskId: (id) => set({ selectedTaskId: id }),
     setTotalCount: (n) => set({ totalCount: n }),
     setShowingCount: (n) => set({ showingCount: n }),
@@ -126,58 +130,87 @@ export const useTaskStore = create<TaskStoreState>()(
   }))
 );
 
-/**
- * React Query integration (server data)
- * API base for tasks
- */
-const API_BASE = "/api/tasks";
+// -----------------------------
+// Supabase API functions
+// -----------------------------
+async function fetchTasks(params: Record<string, any>) {
+  let query = supabase.from("tasks").select("*");
 
-async function fetchTasksAPI(params: Record<string, any>) {
-  const query = new URLSearchParams(params).toString();
-  const res = await fetch(`${API_BASE}?${query}`);
-  if (!res.ok) throw new Error("Failed to fetch tasks");
-  return res.json();
+  // Search
+  if (params.search) {
+    query = query.ilike("title", `%${params.search}%`);
+  }
+
+  // Filter: status / priority
+  if (params.status) {
+    query = query.in("status", params.status.split(","));
+  }
+  if (params.priority) {
+    query = query.in("priority", params.priority.split(","));
+  }
+
+  // Filter completed / personal
+  if (params.showCompleted === "0") {
+    query = query.neq("status", "Done");
+  }
+  if (params.showPersonal === "0") {
+    query = query.eq("isPersonal", false);
+  }
+
+  // Sorting
+  const ascending = params.sortDirection === "asc";
+  switch (params.sortBy) {
+    case "Due Date (Latest)":
+      query = query.order("dueDate", { ascending: false });
+      break;
+    case "Priority (High to Low)":
+      query = query.order("priority", { ascending: false });
+      break;
+    case "Priority (Low to High)":
+      query = query.order("priority", { ascending: true });
+      break;
+    case "Name (A-Z)":
+      query = query.order("title", { ascending: true });
+      break;
+    case "Name (Z-A)":
+      query = query.order("title", { ascending: false });
+      break;
+    default:
+      query = query.order("dueDate", { ascending });
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data as Task[];
 }
 
-async function fetchTaskByIdAPI(id: string) {
-  const res = await fetch(`${API_BASE}/${id}`);
-  if (!res.ok) throw new Error("Failed to fetch task");
-  return res.json();
+async function fetchTaskById(id: string) {
+  const { data, error } = await supabase.from("tasks").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as Task;
 }
 
-async function createTaskAPI(data: Partial<Task>) {
-  const res = await fetch(API_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Failed to create task");
-  return res.json();
+async function createTask(data: Partial<Task>) {
+  const { data: result, error } = await supabase.from("tasks").insert(data).select().single();
+  if (error) throw error;
+  return result as Task;
 }
 
-async function updateTaskAPI(id: string, data: Partial<Task>) {
-  const res = await fetch(`${API_BASE}/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Failed to update task");
-  return res.json();
+async function updateTask(id: string, data: Partial<Task>) {
+  const { data: result, error } = await supabase.from("tasks").update(data).eq("id", id).select().single();
+  if (error) throw error;
+  return result as Task;
 }
 
-async function deleteTaskAPI(id: string) {
-  const res = await fetch(`${API_BASE}/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete task");
+async function deleteTask(id: string) {
+  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  if (error) throw error;
   return id;
 }
 
-/**
- * React Query hooks for tasks
- */
-
-/**
- * useFetchTasks - uses filters/sort/search from useTaskStore to build query key/params
- */
+// -----------------------------
+// React Query Hooks
+// -----------------------------
 export function useFetchTasks() {
   const {
     searchKeyword,
@@ -205,7 +238,7 @@ export function useFetchTasks() {
       },
     ],
     queryFn: () =>
-      fetchTasksAPI({
+      fetchTasks({
         search: searchKeyword,
         quickFilter,
         sortBy: taskSortBy,
@@ -219,35 +252,26 @@ export function useFetchTasks() {
   });
 }
 
-/**
- * useFetchTask - fetch single task by id (for edit form)
- */
 export function useFetchTask(taskId?: string | null) {
   return useQuery({
     queryKey: ["task", taskId],
-    queryFn: () => {
-      if (!taskId) return null;
-      return fetchTaskByIdAPI(taskId);
-    },
+    queryFn: () => (taskId ? fetchTaskById(taskId) : null),
     enabled: !!taskId,
   });
 }
 
-/**
- * Mutations: create / update / delete / mark complete
- */
 export function useCreateTask() {
   const queryClient = useQueryClient();
   const closeModal = useUiStore((s) => s.closeAllModals);
 
   return useMutation({
-    mutationFn: (data: Partial<Task>) => createTaskAPI(data),
+    mutationFn: createTask,
     onSuccess: () => {
       toast.success("Task created");
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       closeModal();
     },
-    onError: (err: any) => {
+    onError: (err) => {
       console.error(err);
       toast.error("Failed to create task");
     },
@@ -260,13 +284,13 @@ export function useUpdateTask() {
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Task> }) =>
-      updateTaskAPI(id, data),
+      updateTask(id, data),
     onSuccess: () => {
       toast.success("Task updated");
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       closeModal();
     },
-    onError: (err: any) => {
+    onError: (err) => {
       console.error(err);
       toast.error("Failed to update task");
     },
@@ -276,31 +300,31 @@ export function useUpdateTask() {
 export function useDeleteTask() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => deleteTaskAPI(id),
+    mutationFn: deleteTask,
     onSuccess: () => {
       toast.success("Task deleted");
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
-    onError: (err: any) => {
+    onError: (err) => {
       console.error(err);
       toast.error("Failed to delete task");
     },
   });
 }
 
-/**
- * Convenience: mark complete (updates status to "Done")
- */
 export function useMarkTaskComplete() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, completed }: { id: string; completed: boolean }) =>
-      updateTaskAPI(id, { status: completed ? "Done" : "In Progress", progress: completed ? 100 : undefined }),
+      updateTask(id, {
+        status: completed ? "Done" : "In Progress",
+        progress: completed ? 100 : undefined,
+      }),
     onSuccess: () => {
       toast.success("Task status updated");
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
-    onError: (err: any) => {
+    onError: (err) => {
       console.error(err);
       toast.error("Failed to update task status");
     },
