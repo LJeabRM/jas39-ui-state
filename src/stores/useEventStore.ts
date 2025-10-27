@@ -4,6 +4,7 @@ import { devtools } from "zustand/middleware";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import { useUiStore } from "./useUiStore";
+import { supabase } from "@/lib/supabaseClient";
 
 // -----------------------------
 // Type Definitions
@@ -22,10 +23,14 @@ export interface Event {
   color: string;
   participants: string[];
   progress: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
+// -----------------------------
+// Zustand Store (Local UI State)
+// -----------------------------
 export interface EventStoreState {
-  // Local UI State
   selectedEventId: string | null;
   searchKeyword: string;
   eventSortBy: string;
@@ -35,7 +40,6 @@ export interface EventStoreState {
   totalCount: number;
   showingCount: number;
 
-  // Actions (local)
   setSelectedEventId: (id: string | null) => void;
   setSearchKeyword: (keyword: string) => void;
   setEventSortBy: (sort: string) => void;
@@ -43,17 +47,14 @@ export interface EventStoreState {
   setEventFilters: (filters: Partial<EventStoreState>) => void;
 }
 
-// -----------------------------
-// Zustand Store (local state only)
-// -----------------------------
 export const useEventStore = create<EventStoreState>()(
   devtools((set) => ({
     selectedEventId: null,
     searchKeyword: "",
-    eventSortBy: "Start Date (Soonest)",
+    eventSortBy: "startDate",
     eventSortDirection: "asc",
     filterByProgress: ["Not Started", "In Progress", "Completed"],
-    filterByDate: ["Past Events", "This Week", "This Month", "Future Events"],
+    filterByDate: ["Past", "This Week", "This Month", "Future"],
     totalCount: 0,
     showingCount: 0,
 
@@ -66,46 +67,70 @@ export const useEventStore = create<EventStoreState>()(
 );
 
 // -----------------------------
-// React Query Hooks (Server Data)
+// Supabase API Helpers
 // -----------------------------
 
-const API_BASE = "/api/events";
+async function fetchEvents(params: {
+  search?: string;
+  sortBy?: string;
+  sortDirection?: "asc" | "desc";
+  progress?: string;
+}) {
+  let query = supabase.from("events").select("*");
 
-async function fetchEvents(params: Record<string, any>) {
-  const query = new URLSearchParams(params).toString();
-  const res = await fetch(`${API_BASE}?${query}`);
-  if (!res.ok) throw new Error("Failed to fetch events");
-  return res.json();
+  // Search
+  if (params.search) {
+    query = query.ilike("title", `%${params.search}%`);
+  }
+
+  // Filter by progress
+  if (params.progress) {
+    const progressArray = params.progress.split(",");
+    query = query.in("progress", progressArray);
+  }
+
+  // Sorting
+  if (params.sortBy) {
+    const ascending = params.sortDirection === "asc";
+    query = query.order(params.sortBy, { ascending });
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data as Event[];
 }
 
 async function createEvent(data: Partial<Event>) {
-  const res = await fetch(API_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Failed to create event");
-  return res.json();
+  const { data: result, error } = await supabase
+    .from("events")
+    .insert(data)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return result as Event;
 }
 
 async function updateEvent(id: string, data: Partial<Event>) {
-  const res = await fetch(`${API_BASE}/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Failed to update event");
-  return res.json();
+  const { data: result, error } = await supabase
+    .from("events")
+    .update(data)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return result as Event;
 }
 
 async function deleteEvent(id: string) {
-  const res = await fetch(`${API_BASE}/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete event");
+  const { error } = await supabase.from("events").delete().eq("id", id);
+  if (error) throw error;
   return id;
 }
 
 // -----------------------------
-// Custom React Query Hooks
+// React Query Hooks
 // -----------------------------
 export function useFetchEvents() {
   const {
@@ -113,18 +138,19 @@ export function useFetchEvents() {
     eventSortBy,
     eventSortDirection,
     filterByProgress,
-    filterByDate,
   } = useEventStore();
 
   return useQuery({
-    queryKey: ["events", { searchKeyword, eventSortBy, eventSortDirection, filterByProgress, filterByDate }],
+    queryKey: [
+      "events",
+      { searchKeyword, eventSortBy, eventSortDirection, filterByProgress },
+    ],
     queryFn: () =>
       fetchEvents({
         search: searchKeyword,
         sortBy: eventSortBy,
         sortDirection: eventSortDirection,
         progress: filterByProgress.join(","),
-        dateFilter: filterByDate.join(","),
       }),
   });
 }
@@ -140,7 +166,10 @@ export function useCreateEvent() {
       queryClient.invalidateQueries({ queryKey: ["events"] });
       closeModal();
     },
-    onError: () => toast.error("Failed to create event"),
+    onError: (err) => {
+      console.error(err);
+      toast.error("Failed to create event");
+    },
   });
 }
 
@@ -156,18 +185,25 @@ export function useUpdateEvent() {
       queryClient.invalidateQueries({ queryKey: ["events"] });
       closeModal();
     },
-    onError: () => toast.error("Failed to update event"),
+    onError: (err) => {
+      console.error(err);
+      toast.error("Failed to update event");
+    },
   });
 }
 
 export function useDeleteEvent() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: deleteEvent,
     onSuccess: () => {
       toast.success("Event deleted!");
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
-    onError: () => toast.error("Failed to delete event"),
+    onError: (err) => {
+      console.error(err);
+      toast.error("Failed to delete event");
+    },
   });
 }
